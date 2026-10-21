@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corsi Block-Tapping Task</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #333;
+        }
+        .screen {
+            display: none;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        .active {
+            display: block;
+        }
+        input[type="text"] {
+            padding: 12px;
+            font-size: 20px;
+            width: 150px;
+            text-align: center;
+            border: 2px solid #ccc;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #experiment-container {
+            position: relative;
+            width: 600px;
+            height: 500px;
+            background: #fafafa;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin: 0 auto;
+        }
+        .block {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background-color: #6c5ce7; /* Purple */
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .block.yellow {
+            background-color: #ffeaa7 !important; /* Highlight */
+        }
+        .block.ticked {
+            border: 4px solid #00b894;
+        }
+        #feedback-box {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .instructions-text {
+            font-size: 18px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SCREEN 1: Participant ID Entry -->
+    <div id="screen-id" class="screen active">
+        <h2>Corsi Block-Tapping Task</h2>
+        <p>Please enter your 3-digit participant number to begin:</p>
+        <input type="text" id="participant-id" maxlength="3" placeholder="e.g. 101">
+        <br>
+        <button onclick="startInstructions()">Continue</button>
+    </div>
+
+    <!-- SCREEN 2: Instructions -->
+    <div id="screen-instructions" class="screen">
+        <h2>Instructions</h2>
+        <div class="instructions-text">
+            <p>1. Watch the blocks light up in a specific sequence.</p>
+            <p>2. After the 'Go' signal, click the blocks in the exact same order they lit up.</p>
+            <p>3. The sequence will get longer as you progress successfully.</p>
+        </div>
+        <button onclick="startExperimentTask()">Start Experiment</button>
+    </div>
+
+    <!-- SCREEN 3: Task Arena -->
+    <div id="screen-task" class="screen">
+        <div id="experiment-container">
+            <div id="feedback-box"></div>
+        </div>
+    </div>
+
+    <!-- SCREEN 4: Completion & Excel Download -->
+    <div id="screen-complete" class="screen">
+        <h2>Experiment Complete</h2>
+        <p id="final-score-text" style="font-size: 22px; margin: 20px 0;"></p>
+        <p>Thank you for participating! Click below to download your data file.</p>
+        <button onclick="downloadExcelCSV()">Download Excel Data (.csv)</button>
+    </div>
+
+<script>
+    let participantId = "";
+    let currentCount = 2; // Starts with 2 blocks
+    let errorCount = 0;
+    let maxSpan = 0;
+    let trialData = [];
+
+    // Standard 9 Corsi block coordinate mapping (percentages within container)
+    const blockCoords = [
+        {top: 50, left: 100}, // 1
+        {top: 80, left: 250}, // 2
+        {top: 40, left: 350}, // 3
+        {top: 150, left: 80}, // 4
+        {top: 200, left: 250}, // 5
+        {top: 120, left: 450}, // 6
+        {top: 350, left: 150}, // 7
+        {top: 300, left: 380}, // 8
+        {top: 380, left: 480}  // 9
+    ];
+
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+
+    function startInstructions() {
+        const input = document.getElementById('participant-id').value.trim();
+        if (input.length < 3) {
+            alert("Please enter a valid 3-digit participant number.");
+            return;
+        }
+        participantId = input;
+        showScreen('screen-instructions');
+    }
+
+    function playBeep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 587.33; // D5 note
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+        } catch(e) {
+            // Audio context fallback if blocked by browser policy
+        }
+    }
+
+    function startExperimentTask() {
+        showScreen('screen-task');
+        setupBlocks();
+        runTrial();
+    }
+
+    function setupBlocks() {
+        const container = document.getElementById('experiment-container');
+        // Clear previous blocks if any
+        container.querySelectorAll('.block').forEach(b => b.remove());
+
+        blockCoords.forEach((coord, index) => {
+            const block = document.createElement('div');
+            block.className = 'block';
+            block.dataset.index = index + 1;
+            block.style.top = coord.top + 'px';
+            block.style.left = coord.left + 'px';
+            block.onclick = () => handleBlockClick(index + 1);
+            container.appendChild(block);
+        });
+    }
+
+    let targetSequence = [];
+    let userSequence = [];
+    let acceptingClicks = false;
+
+    function runTrial() {
+        acceptingClicks = false;
+        userSequence = [];
+        document.getElementById('feedback-box').innerText = '';
+        
+        // Remove ticks
+        document.querySelectorAll('.block').forEach(b => b.classList.remove('ticked'));
+
+        // Generate random sequence of length currentCount without consecutive duplicates
+        targetSequence = [];
+        while (targetSequence.length < currentCount) {
+            let rand = Math.floor(Math.random() * 9) + 1;
+            if (targetSequence.length === 0 || targetSequence[targetSequence.length - 1] !== rand) {
+                targetSequence.push(rand);
+            }
+        }
+
+        // Play sequence presentation
+        let i = 0;
+        const interval = setInterval(() => {
+            if (i > 0) {
+                document.querySelectorAll('.block').forEach(b => b.classList.remove('yellow'));
+            }
+            if (i < targetSequence.length) {
+                let blockElem = document.querySelector(`.block[data-index='${targetSequence[i]}']`);
+                if (blockElem) blockElem.classList.add('yellow');
+                i++;
+            } else {
+                clearInterval(interval);
+                setTimeout(() => {
+                    document.querySelectorAll('.block').forEach(b => b.classList.remove('yellow'));
+                    playBeep();
+                    acceptingClicks = true;
+                }, 300);
+            }
+        }, 800);
+    }
+
+    function handleBlockClick(blockIndex) {
+        if (!acceptingClicks) return;
+
+        userSequence.push(blockIndex);
+        
+        // Show brief click indicator
+        let blockElem = document.querySelector(`.block[data-index='${blockIndex}']`);
+        blockElem.classList.add('ticked');
+        setTimeout(() => blockElem.classList.remove('ticked'), 200);
+
+        // Check if user has completed sequence length
+        if (userSequence.length === targetSequence.length) {
+            acceptingClicks = false;
+            evaluateTrial();
+        }
+    }
+
+    function evaluateTrial() {
+        let isCorrect = true;
+        for (let i = 0; i < targetSequence.length; i++) {
+            if (userSequence[i] !== targetSequence[i]) {
+                isCorrect = false;
+                break;
+            }
+        }
+
+        let feedbackBox = document.getElementById('feedback-box');
+        if (isCorrect) {
+            feedbackBox.innerText = '✔️';
+            maxSpan = currentCount;
+            currentCount++;
+            errorCount = 0;
+        } else {
+            feedbackBox.innerText = '❌';
+            errorCount++;
+        }
+
+        // Record data row
+        trialData.push({
+            participant: participantId,
+            spanLength: targetSequence.length,
+            targetSeq: targetSequence.join('-'),
+            userSeq: userSequence.join('-'),
+            correct: isCorrect ? 1 : 0
+        });
+
+        setTimeout(() => {
+            if (errorCount >= 2 || currentCount > 9) {
+                endExperiment();
+            } else {
+                runTrial();
+            }
+        }, 1000);
+    }
+
+    function endExperiment() {
+        showScreen('screen-complete');
+        document.getElementById('final-score-text').innerText = `Your Corsi span is ${maxSpan} items.`;
+    }
+
+    function downloadExcelCSV() {
+        let csvContent = "data:text/csv;charset=utf-8,ParticipantID,SpanLength,TargetSequence,UserSequence,Correct\n";
+        
+        trialData.forEach(row => {
+            csvContent += `${row.participant},${row.spanLength},"${row.targetSeq}","${row.userSeq}",${row.correct}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `corsi_data_participant_${participantId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
